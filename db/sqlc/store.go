@@ -49,11 +49,14 @@ type TransferTxResult struct {
 	ToEntry     Entry    `json:"to_entry`
 }
 
+var txKey = struct{}{}
+
 // Creates a transfer record
 func (store *Store) TransferTx(ctx context.Context, arg TransferTxParams) (TransferTxResult, error) {
 	var result TransferTxResult
 	err := store.execTx(ctx, func(q *Queries) error {
 		var err error
+
 		result.Transfer, err = q.CreateTransfers(ctx, CreateTransfersParams{
 			FromAccountID: sql.NullInt64{Int64: arg.FromAccountID, Valid: true},
 			ToAccountID:   sql.NullInt64{Int64: arg.ToAccountID, Valid: true},
@@ -66,7 +69,7 @@ func (store *Store) TransferTx(ctx context.Context, arg TransferTxParams) (Trans
 
 		result.FromEntry, err = q.CreateEntries(ctx, CreateEntriesParams{
 			AccountID: sql.NullInt64{Int64: arg.FromAccountID, Valid: true},
-			Amount:    -arg.Ammount,
+			Amount:    arg.Ammount,
 		})
 
 		if err != nil {
@@ -75,7 +78,7 @@ func (store *Store) TransferTx(ctx context.Context, arg TransferTxParams) (Trans
 
 		result.ToEntry, err = q.CreateEntries(ctx, CreateEntriesParams{
 			AccountID: sql.NullInt64{Int64: arg.FromAccountID, Valid: true},
-			Amount:    arg.Ammount,
+			Amount:    -arg.Ammount,
 		})
 
 		if err != nil {
@@ -83,6 +86,45 @@ func (store *Store) TransferTx(ctx context.Context, arg TransferTxParams) (Trans
 		}
 
 		// update account
+		account1, err := q.GetAccountForUpdate(ctx, arg.FromAccountID)
+
+		if err != nil {
+			return err
+		}
+
+		err = q.UpdateAccount(ctx, UpdateAccountParams{
+			ID:      arg.FromAccountID,
+			Balance: account1.Balance - arg.Ammount,
+		})
+
+		if err != nil {
+			return err
+		}
+
+		result.FromAccount, err = q.GetAccountForUpdate(ctx, arg.FromAccountID)
+		if err != nil {
+			return err
+		}
+
+		account2, err := q.GetAccount(ctx, arg.ToAccountID)
+
+		if err != nil {
+			return err
+		}
+
+		err = q.UpdateAccount(ctx, UpdateAccountParams{
+			ID:      arg.ToAccountID,
+			Balance: account2.Balance - arg.Ammount,
+		})
+
+		if err != nil {
+			return err
+		}
+
+		result.ToAccount, err = q.GetAccount(ctx, arg.ToAccountID)
+		if err != nil {
+			return err
+		}
 
 		return nil
 	})
